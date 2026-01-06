@@ -1,0 +1,5 @@
+{
+  "name": "Pinball Territory War",
+  "description": "A hybrid simulation game combining physics-based pinball resource gathering with a strategic territory capture map. Supports 2-8 players with dynamic layout and autonomous units.",
+  "requestFramePermissions": []
+}
