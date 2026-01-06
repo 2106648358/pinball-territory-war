@@ -103,6 +103,21 @@ const App: React.FC = () => {
         gameEngine.players.forEach(p => {
             if (!p.isAlive) return;
 
+            // Draw production area (center 2/3 of base) - subtle highlight matching base color
+            const productionRadius = p.baseRadius * 2 / 3;
+            
+            // Parse HSL color to extract hue
+            const colorMatch = p.color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+            const hue = colorMatch ? parseInt(colorMatch[1]) : 0;
+            const saturation = colorMatch ? parseInt(colorMatch[2]) : 70;
+            const lightness = colorMatch ? parseInt(colorMatch[3]) : 50;
+            
+            // Create lighter version of base color for production area (increase lightness by 15%)
+            ctx.beginPath();
+            ctx.arc(p.basePosition.x * w, p.basePosition.y * h, productionRadius * cellSize, 0, Math.PI * 2);
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${Math.min(100, lightness + 15)}%, 0.3)`;
+            ctx.fill();
+
 // Core with health indicator
             const clampedHp = Math.max(0, Math.min(500, p.coreHp));
             const coreHealthRatio = clampedHp / 500;
@@ -291,72 +306,61 @@ const App: React.FC = () => {
             return;
         }
 
-        // Draw Pegs
-        ctx.fillStyle = '#334155';
+        // Draw Pegs with different colors based on type
         gameEngine.pegs.forEach(peg => {
+            const pegRadius = 4; // Increased from 3 for better visibility
             ctx.beginPath();
-            ctx.arc(peg.x * scaleX, peg.y * scaleY, 3, 0, Math.PI * 2);
+            ctx.arc(peg.x * scaleX, peg.y * scaleY, pegRadius, 0, Math.PI * 2);
+
+            // Color based on peg type with better visibility
+            if (peg.type === 'gold') {
+                ctx.fillStyle = '#fbbf24'; // Gold
+                ctx.shadowColor = '#fbbf24';
+                ctx.shadowBlur = 10; // Increased glow
+            } else if (peg.type === 'red') {
+                ctx.fillStyle = '#ef4444'; // Red
+                ctx.shadowColor = '#ef4444';
+                ctx.shadowBlur = 10; // Increased glow
+            } else {
+                ctx.fillStyle = '#94a3b8'; // Lighter gray for better visibility
+                ctx.shadowBlur = 0;
+            }
+
             ctx.fill();
+
+            // Add white border for better contrast
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
         });
 
-        // Draw Catcher (Moving Platform)
-        const catcherX = gameEngine.catcherPositions[player.id];
-        const catcherY = 135; 
-        const catcherW = 34;
-        const catcherH = 6;
-        
-        // Catcher Glow
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#fbbf24'; // Amber-400
-        ctx.fillStyle = '#fbbf24';
-        ctx.fillRect(
-            (catcherX - catcherW/2) * scaleX, 
-            catcherY * scaleY, 
-            catcherW * scaleX, 
-            catcherH * scaleY
-        );
-        ctx.shadowBlur = 0;
+        // No catcher drawing - balls just fall to bottom and generate units randomly
 
-        // Draw The Ball
+        // Draw Ball
         const ball = gameEngine.balls.get(player.id);
         if (ball) {
-            ctx.fillStyle = player.color;
             ctx.beginPath();
             ctx.arc(ball.x * scaleX, ball.y * scaleY, ball.radius * scaleX, 0, Math.PI * 2);
+            ctx.fillStyle = ball.color;
+            ctx.shadowColor = ball.color;
+            ctx.shadowBlur = 10;
             ctx.fill();
-            
-            // Shine effect
-            ctx.fillStyle = 'rgba(255,255,255,0.5)';
-            ctx.beginPath();
-            ctx.arc((ball.x - 2) * scaleX, (ball.y - 2) * scaleY, ball.radius * 0.3 * scaleX, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.shadowBlur = 0;
         }
 
         // Draw Stats Overlay
         ctx.fillStyle = 'white';
         ctx.font = 'bold 16px monospace';
         ctx.fillText(`${gameEngine.scores[player.id]}`, 10, 25);
-        
+
         // Territory Bar
         const totalTiles = 100*100;
         const percent = ((gameEngine.territoryCounts[player.id] / totalTiles) * 100).toFixed(1);
         ctx.font = '12px monospace';
         ctx.fillStyle = '#94a3b8';
         ctx.fillText(`Territory: ${percent}%`, 10, 45);
-        
-        // Game Phase
-        ctx.font = '10px monospace';
-        ctx.fillStyle = '#64748b';
-        const phaseText = `Phase: ${gameEngine.gamePhase.toUpperCase()}`;
-        ctx.fillText(phaseText, 10, 60);
-        
-        // Unit Type Legend
-        ctx.font = '9px monospace';
-        ctx.fillStyle = '#475569';
-        ctx.fillText('Unit Types:', 10, 78);
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillText('● Light', 10, 90);
-        ctx.fillText('■ Heavy', 55, 90);
         
         // Base Health Display (at bottom)
         const clampedHp = Math.max(0, Math.min(500, player.coreHp));

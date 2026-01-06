@@ -13,11 +13,11 @@ const CATCHER_Y = 135;
 const CATCHER_WIDTH_BASE = 28;  // Reduced from 32
 const CATCHER_WIDTH_MAX_BONUS = 12; // Reduced from 18
 
-// Unit Type Stats (Simplified, slower movement)
+// Unit Type Stats (Increased speed for more dynamic gameplay)
 const UNIT_STATS: Record<UnitType, UnitStats> = {
   light: {
     baseHp: 40,
-    speed: 0.2,  // Reduced from 0.3
+    speed: 0.35,  // Increased from 0.2 for faster movement
     captureRadius: 1.0,
     attackPower: 0.8,
     defenseBonus: 0.8,
@@ -25,7 +25,7 @@ const UNIT_STATS: Record<UnitType, UnitStats> = {
   },
   heavy: {
     baseHp: 80,
-    speed: 0.15,  // Reduced from 0.2
+    speed: 0.25,  // Increased from 0.15 for faster movement
     captureRadius: 2.0,
     attackPower: 1.8,
     defenseBonus: 2.0,
@@ -38,22 +38,33 @@ class Ball {
   y: number;
   vx: number;
   vy: number;
-  radius: number = 5.0;
+  radius: number = 100.0;
   color: string;
   stuckFrames: number = 0;
   rewardCooldown: number = 0;
   pegHitCount: number = 0; // Track peg hits
 
+  // NEW: Combo system
+  comboPoints: number = 0; // Combo points for multiplier
+  maxComboPoints: number = 0; // Track maximum combo for this ball
+  ballTick: number = 0; // For random seed
+
   constructor(x: number, y: number, color: string) {
     this.x = x;
     this.y = y;
     this.color = color;
-    this.vx = (Math.random() - 0.5) * 6;
-    this.vy = Math.random() * 2;
+    // NEW: Reduced initial velocity for more realistic free fall
+    this.vx = (Math.random() - 0.5) * 2; // Reduced from 6
+    this.vy = Math.random() * 0.5; // Reduced from 2
     this.pegHitCount = 0;
+    this.comboPoints = 0;
+    this.maxComboPoints = 0;
+    this.ballTick = 0;
+    this.radius = 5.0; // Increased from 4.0 for better visibility
   }
 
-  update(width: number, height: number, pegs: Point[], catcherX: number, catcherWidth: number): number {
+  update(width: number, height: number, pegs: any[]): number {
+    this.ballTick++;
     if (this.rewardCooldown > 0) this.rewardCooldown--;
 
     this.vy += GRAVITY;
@@ -63,95 +74,188 @@ class Ball {
     this.x += this.vx;
     this.y += this.vy;
 
-    // Anti-stuck
+    // Anti-stuck - Enhanced
     const speedSq = this.vx * this.vx + this.vy * this.vy;
     if (speedSq < 0.2) {
       this.stuckFrames++;
-      if (this.stuckFrames > 30) {
-        this.vy = -3 - Math.random() * 3;
-        this.vx = (Math.random() - 0.5) * 8;
+      if (this.stuckFrames > 20) { // Reduced from 30 for faster recovery
+        // Force ball to move upward with random horizontal velocity
+        this.vy = -4 - Math.random() * 4; // Increased upward force
+        this.vx = (Math.random() - 0.5) * 10; // Increased horizontal variation
         this.stuckFrames = 0;
       }
     } else {
       this.stuckFrames = 0;
     }
 
-    // Walls
-    if (this.x < this.radius) {
-      this.x = this.radius;
-      this.vx *= -0.6;
-    } else if (this.x > width - this.radius) {
-      this.x = width - this.radius;
-      this.vx *= -0.6;
+    // Additional anti-stuck: Check if ball is trapped between pegs
+    let nearbyPegs = 0;
+    for (const peg of pegs) {
+      const dx = this.x - peg.x;
+      const dy = this.y - peg.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 8) { // Very close to peg
+        nearbyPegs++;
+      }
     }
 
-    // Pegs
+    // If surrounded by too many pegs, force escape
+    if (nearbyPegs >= 3 && speedSq < 1.0) {
+      this.vy = -5; // Strong upward force
+      this.vx = (this.x > 50) ? -3 : 3; // Move toward center
+    }
+
+    // Walls with improved physics
+    if (this.x < this.radius) {
+      this.x = this.radius;
+
+      // Calculate incident angle (0 = perpendicular, 90 = grazing)
+      const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+      const incidentAngle = Math.abs(Math.atan2(this.vy, this.vx)) * (180 / Math.PI);
+
+      // Angle-based damping
+      // Perpendicular hits lose more energy, grazing hits lose less
+      const angleFactor = 0.5 + (incidentAngle / 90) * 0.3; // 0.5 at 0°, 0.8 at 90°
+      this.vx *= -angleFactor;
+
+    } else if (this.x > width - this.radius) {
+      this.x = width - this.radius;
+
+      // Calculate incident angle
+      const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+      const incidentAngle = Math.abs(Math.atan2(this.vy, -this.vx)) * (180 / Math.PI);
+
+      // Angle-based damping
+      const angleFactor = 0.5 + (incidentAngle / 90) * 0.3;
+      this.vx *= -angleFactor;
+    }
+
+    // NEW: Multi-layer pegs and combo system with improved physics
     const pegRadius = 3;
     const minDist = this.radius + pegRadius;
     const minDistSq = minDist * minDist;
+
+    // Track closest peg for continuous collision detection
+    let closestPeg = null;
+    let closestDistSq = Infinity;
+    let closestDx = 0;
+    let closestDy = 0;
 
     for (const peg of pegs) {
       const dx = this.x - peg.x;
       const dy = this.y - peg.y;
       const distSq = dx * dx + dy * dy;
 
-      if (distSq < minDistSq) {
-        const dist = Math.sqrt(distSq);
-        const nx = dx / dist;
-        const ny = dy / dist;
-        
-        const dot = this.vx * nx + this.vy * ny;
-        if (dot < 0) {
-            // Add randomness to peg bounce
-            const randomFactor = 0.9 + (Math.random() * 0.2); // 0.9 to 1.1
-            this.vx = (this.vx - 2 * dot * nx) * BOUNCE_DAMPING * randomFactor;
-            this.vy = (this.vy - 2 * dot * ny) * BOUNCE_DAMPING * randomFactor;
-            
-            // Track peg hits
-            this.pegHitCount++;
-        }
-        const overlap = minDist - dist;
-        this.x += nx * overlap;
-        this.y += ny * overlap;
+      // Find closest peg
+      if (distSq < closestDistSq) {
+        closestDistSq = distSq;
+        closestPeg = peg;
+        closestDx = dx;
+        closestDy = dy;
       }
     }
 
-    // Catcher Logic (Dynamic Width)
-    const halfW = catcherWidth / 2;
-    if (this.x >= catcherX - halfW - this.radius && 
-        this.x <= catcherX + halfW + this.radius) {
-        
-        if (this.y + this.radius >= CATCHER_Y && 
-            this.y - this.radius <= CATCHER_Y + 10 && 
-            this.vy > 0) {
-            
-            this.y = CATCHER_Y - this.radius;
-            
-            // Enhanced bounce logic
-            const hitOffset = (this.x - catcherX) / halfW;
-            
-            // Base bounce speed with more variation
-            const baseBounce = 1.4 + (Math.random() * 0.4); // 1.4 to 1.8
-            this.vy = -Math.abs(this.vy) * baseBounce;
-            
-            // Cap maximum vertical speed
-            if (this.vy < -18) this.vy = -18;
+    // Process collision with closest peg
+    if (closestPeg && closestDistSq < minDistSq) {
+      const dist = Math.sqrt(closestDistSq);
+      const nx = closestDx / dist; // Normal vector
+      const ny = closestDy / dist;
 
-            // Enhanced horizontal velocity based on hit position
-            // Hitting center: less horizontal, Hitting edges: more horizontal
-            this.vx += hitOffset * 4; // Increased from 2
-            
-            // Add some randomness to make it more challenging
-            this.vx += (Math.random() - 0.5) * 1.5;
+      // Check if ball is moving toward the peg
+      const dot = this.vx * nx + this.vy * ny;
 
-            if (this.rewardCooldown === 0) {
-                this.rewardCooldown = 45; 
-                return 2; // JACKPOT
-            }
+      if (dot < 0) {
+        // Calculate incident angle (0 = head-on, 90 = grazing)
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        const incidentAngle = Math.abs(Math.asin(dot / speed)) * (180 / Math.PI);
+
+        // Calculate tangential velocity (velocity along the peg surface)
+        const tx = -ny; // Tangent vector (perpendicular to normal)
+        const ty = nx;
+        const tangentialVel = this.vx * tx + this.vy * ty;
+
+        // Angle-based energy conservation
+        // Head-on collisions lose more energy, grazing collisions lose less
+        const angleFactor = 1.0 - (incidentAngle / 180) * 0.3; // 1.0 at 0°, 0.7 at 90°
+        const effectiveDamping = BOUNCE_DAMPING * angleFactor;
+
+        // Reflect normal component
+        const normalVel = dot;
+        const reflectedNormalVel = -normalVel * effectiveDamping;
+
+        // Preserve tangential component with slight friction
+        const tangentialFriction = 0.95; // Slightly reduce tangential velocity
+        const newTangentialVel = tangentialVel * tangentialFriction;
+
+        // Combine components
+        this.vx = reflectedNormalVel * nx + newTangentialVel * tx;
+        this.vy = reflectedNormalVel * ny + newTangentialVel * ty;
+
+        // Add small random perturbation for variety (much smaller than before)
+        const randomAngle = (Math.random() - 0.5) * 0.1; // ±0.05 radians (~3°)
+        const cos = Math.cos(randomAngle);
+        const sin = Math.sin(randomAngle);
+        const newVx = this.vx * cos - this.vy * sin;
+        const newVy = this.vx * sin + this.vy * cos;
+        this.vx = newVx;
+        this.vy = newVy;
+
+        // Track peg hits
+        this.pegHitCount++;
+
+        // Combo system - Add points based on peg type
+        if (closestPeg.type === 'normal') {
+          this.comboPoints += 1;
+        } else if (closestPeg.type === 'gold') {
+          this.comboPoints += 3;
+        } else if (closestPeg.type === 'red') {
+          this.comboPoints -= 2;
         }
+
+        // Track maximum combo
+        this.maxComboPoints = Math.max(this.maxComboPoints, this.comboPoints);
+      }
+
+      // Position correction - push ball out of peg
+      const overlap = minDist - dist;
+      this.x += nx * overlap;
+      this.y += ny * overlap;
     }
 
-    if (this.y > height + this.radius) return 1; // MISS
+    // NEW: Random scoring system based on ball position and velocity
+    // 1. 当小球到达底部时，根据速度和位置计算随机分数
+    if (this.y > height + this.radius) {
+      // 计算随机性因素
+      const speedFactor = Math.min(1.0, Math.sqrt(speedSq) / 10); // 速度因子 (0-1)
+      const xPositionFactor = Math.abs(this.x - 50) / 50; // 位置因子 (中心为0，边缘为1)
+      const comboFactor = Math.min(2.0, 1.0 + (this.comboPoints / 20)); // 连击因子 (1-2)
+      
+      // 随机数种子 - 使用更多随机性
+      const randomSeed = (this.x * 100 + this.y + this.ballTick + Math.random() * 100) % 100;
+      
+      // 基础分数 - 增加更大的差异范围
+      let baseScore = 2;
+      
+      // 随机性调整 - 增加极端情况的概率
+      if (randomSeed < 15) {
+        baseScore = 0; // 15% 概率得0分 - 增加失败率
+      } else if (randomSeed < 40) {
+        baseScore = 1; // 25% 概率低分
+      } else if (randomSeed < 70) {
+        baseScore = 2; // 30% 概率中分
+      } else if (randomSeed < 90) {
+        baseScore = 4; // 20% 概率高分 - 增加奖励
+      } else {
+        baseScore = 8; // 10% 概率大奖 - 大幅增加
+      }
+      
+      // 应用因子 - 增加位置影响
+      const finalScore = Math.floor(baseScore * speedFactor * comboFactor * (1.0 - xPositionFactor * 0.5));
+      
+      // 确保至少0分（可以是0）
+      return Math.max(0, finalScore);
+    }
+    
     return 0;
   }
 }
@@ -202,8 +306,8 @@ export class Unit {
     const stats = UNIT_STATS[unitType];
     
     // Set max distance based on unit type
-    // Light units: max 1 tile, Heavy units: max 1.5 tiles
-    this.maxDistance = unitType === 'light' ? 1.0 : 1.5;
+    // Increased max distance to allow units to penetrate deeper and break stalemates
+    this.maxDistance = unitType === 'light' ? 2.0 : 3.0; // Increased from 1.0/1.5 to 2.0/3.0
     
     // Phase-based scaling
     let phaseMultiplier = 1.0;
@@ -236,7 +340,7 @@ export class Unit {
       }
     }
 
-    // Movement
+    // Movement - straight line without random variations
     this.x += Math.cos(this.angle) * this.speed;
     this.y += Math.sin(this.angle) * this.speed;
 
@@ -389,9 +493,29 @@ export class Unit {
     
     if (pixelsPainted > 0) {
       const baseCost = pixelsPainted * resistanceMult;
+      
+      // NEW: Check if attacking a player's base area - much higher resistance
+      let isBaseArea = false;
+      for (const player of players) {
+        if (currentOwner === player.id && player.isAlive) {
+          const baseCenterX = Math.floor(player.basePosition.x * MAP_GRID_SIZE);
+          const baseCenterY = Math.floor(player.basePosition.y * MAP_GRID_SIZE);
+          const distToBase = Math.sqrt(Math.pow(gx - baseCenterX, 2) + Math.pow(gy - baseCenterY, 2));
+          
+          if (distToBase <= player.baseRadius) {
+            isBaseArea = true;
+            break;
+          }
+        }
+      }
+      
       // Add extra cost for neutral territory to slow expansion
-      const neutralCost = currentOwner === -1 ? baseCost * 2.0 : baseCost; // Increased from 1.5
-      const terrainCost = terrain.type === 'highground' ? neutralCost * 1.5 : neutralCost;
+      const neutralCost = currentOwner === -1 ? baseCost * 2.0 : baseCost;
+      
+      // NEW: Base areas are much harder to capture
+      const baseAreaCost = isBaseArea ? neutralCost * 5.0 : neutralCost; // 5x resistance for base areas
+      
+      const terrainCost = terrain.type === 'highground' ? baseAreaCost * 1.5 : baseAreaCost;
       let finalCost = terrainCost / (this.attackPower * typeBonus * defenseModifier);
       
       // Heavy units take less damage to extend lifespan
@@ -440,16 +564,18 @@ export class GameEngine {
   units: Unit[] = [];
   grid: number[][] = [];
   terrainGrid: TerrainCell[][] = [];
-  pegs: Point[] = [];
-  
-  tick: number = 0; 
+  pegs: any[] = []; // Changed to any[] to support peg types
+
+  tick: number = 0;
   catcherPhases: number[] = [];
-  catcherPositions: number[] = []; 
+  catcherPositions: number[] = [];
+  // NEW: Per-player special peg refresh timers
+  playerPegRefreshTimers: number[] = [];
   scores: number[] = [];
   territoryCounts: number[] = [];
   winner: number | null = null;
-  
-  // New: Streak tracking for catch/miss
+
+  // Streak tracking for catch/miss
   catchStreaks: number[] = []; // Consecutive catches
   missStreaks: number[] = [];   // Consecutive misses
   catchMultipliers: number[] = []; // Reward multipliers based on streaks
@@ -464,13 +590,155 @@ export class GameEngine {
 
   initGrid() {
     this.grid = Array(MAP_GRID_SIZE).fill(null).map(() => Array(MAP_GRID_SIZE).fill(-1));
-    this.terrainGrid = Array(MAP_GRID_SIZE).fill(null).map(() => 
+    this.terrainGrid = Array(MAP_GRID_SIZE).fill(null).map(() =>
       Array(MAP_GRID_SIZE).fill(null).map(() => ({
         type: 'normal' as TerrainType,
         owner: -1,
         bonus: 1.0
       }))
     );
+  }
+
+  // Helper: Gaussian function for bell curve distribution
+  private gaussian(x: number, mu: number, sigma: number): number {
+    const a = 1 / (sigma * Math.sqrt(2 * Math.PI));
+    const b = -0.5 * Math.pow((x - mu) / sigma, 2);
+    return a * Math.exp(b);
+  }
+
+  // Helper: Generate bell curve pattern array based on row count
+  private generateBellCurvePattern(rowCount: number, peakAt: number = 0): number[] {
+    const pattern: number[] = [];
+    const mu = peakAt >= 0 ? peakAt : (rowCount - 1) / 2;
+    const sigma = rowCount / 4; // Adjust spread of the bell curve
+
+    for (let i = 0; i < rowCount; i++) {
+      // Calculate bell curve value and scale to reasonable peg count
+      const value = this.gaussian(i, mu, sigma);
+      // Scale: multiply by a factor to get 1-8 pegs per row
+      const scaled = Math.max(1, Math.round(value * rowCount * 2.5));
+      pattern.push(scaled);
+    }
+
+    return pattern;
+  }
+
+  // Helper: Get random peg type with weighted probabilities
+  private getRandomPegType(): string {
+    const rand = Math.random();
+    if (rand < 0.10) return 'gold';
+    if (rand < 0.18) return 'red';
+    return 'normal';
+  }
+
+  // NEW: Generate multi-layer pegs with Gaussian normal distribution layout
+  generateMultiLayerPegs() {
+    this.pegs = [];
+
+    // 统一配置：五排钉子，每排4个钉子，均匀分布
+    const ROW_COUNT = 5;           // 五排钉子
+    const COL_COUNT = 4;           // 每排4个钉子
+    const ROW_SPACING = 24;        // 排与排之间的垂直间距
+    const COL_SPACING = 24;        // 钉子之间的水平间距（与垂直间距相同）
+    const START_Y = 120;           // 第一排的起始Y坐标
+
+    for (let r = 0; r < ROW_COUNT; r++) {
+      // 纵向错开：奇数排向右偏移半个间距
+      const stagger = (r % 2) * (COL_SPACING / 2);
+      const rowWidth = (COL_COUNT - 1) * COL_SPACING;
+      const startX = (100 - rowWidth) / 2;
+
+      for (let c = 0; c < COL_COUNT; c++) {
+        // 计算钉子位置
+        let x = startX + c * COL_SPACING + stagger;
+        let y = START_Y - r * ROW_SPACING;
+
+        // 添加少量随机偏移，使布局更自然
+        const randomOffset = this.gaussianRandom(0, 0.8);
+        x += randomOffset;
+        y += randomOffset * 0.3;
+
+        // 确保钉子在边界内
+        x = Math.max(5, Math.min(95, x));
+        y = Math.max(5, Math.min(140, y));
+
+        this.pegs.push({
+          x,
+          y,
+          type: this.getRandomPegType(),
+          layer: 1  // 统一层级
+        });
+      }
+    }
+
+    console.log(`Generated ${this.pegs.length} pegs with 5-row staggered layout`);
+  }
+
+  // Helper: Box-Muller transform for Gaussian random numbers
+  private gaussianRandom(mean: number = 0, stdDev: number = 1): number {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    // Box-Muller transform
+    const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+    return z0 * stdDev + mean;
+  }
+
+  // NEW: Refresh gold and red pegs randomly
+  refreshSpecialPegs() {
+    // Reset all special pegs to normal
+    this.pegs.forEach(peg => {
+      if (peg.type === 'gold' || peg.type === 'red') {
+        peg.type = 'normal';
+      }
+    });
+
+    // Randomly assign new gold and red pegs
+    const normalPegs = this.pegs.filter(peg => peg.type === 'normal');
+    const shuffled = normalPegs.sort(() => Math.random() - 0.5);
+
+    // Assign gold pegs (10% of total)
+    const goldCount = Math.floor(this.pegs.length * 0.10);
+    for (let i = 0; i < goldCount && i < shuffled.length; i++) {
+      shuffled[i].type = 'gold';
+    }
+
+    // Assign red pegs (8% of total)
+    const redCount = Math.floor(this.pegs.length * 0.08);
+    for (let i = goldCount; i < goldCount + redCount && i < shuffled.length; i++) {
+      shuffled[i].type = 'red';
+    }
+  }
+  
+  // NEW: Refresh special pegs for a specific player with their own rules
+  refreshSpecialPegsForPlayer(playerId: number) {
+    // Reset all special pegs to normal
+    this.pegs.forEach(peg => {
+      if (peg.type === 'gold' || peg.type === 'red') {
+        peg.type = 'normal';
+      }
+    });
+
+    // Randomly assign new gold and red pegs with player-specific ratios
+    const normalPegs = this.pegs.filter(peg => peg.type === 'normal');
+    const shuffled = normalPegs.sort(() => Math.random() - 0.5);
+
+    // Player-specific gold peg count based on territory control
+    const totalPixels = MAP_GRID_SIZE * MAP_GRID_SIZE;
+    const dominance = this.territoryCounts[playerId] / totalPixels;
+    // Players with more territory get more gold pegs (10-20%)
+    const goldCount = Math.floor(this.pegs.length * (0.10 + 0.10 * dominance));
+    
+    for (let i = 0; i < goldCount && i < shuffled.length; i++) {
+      shuffled[i].type = 'gold';
+    }
+
+    // Player-specific red peg count based on territory control
+    // Players with less territory get more red pegs to balance difficulty
+    const redCount = Math.floor(this.pegs.length * (0.08 * (1.0 - dominance)));
+    
+    for (let i = goldCount; i < goldCount + redCount && i < shuffled.length; i++) {
+      shuffled[i].type = 'red';
+    }
   }
 
   setup(playerCount: number) {
@@ -484,17 +752,22 @@ export class GameEngine {
     this.tick = 0;
     this.winner = null;
     this.gamePhase = 'early';
+    // Initialize per-player special peg refresh timers
+    this.playerPegRefreshTimers = new Array(playerCount).fill(0);
 
     this.catcherPhases = new Array(playerCount).fill(0).map(() => Math.random() * Math.PI * 2);
     this.catcherPositions = new Array(playerCount).fill(50);
-    
+
     // Initialize streak tracking
     this.catchStreaks = new Array(playerCount).fill(0);
     this.missStreaks = new Array(playerCount).fill(0);
     this.catchMultipliers = new Array(playerCount).fill(1.0);
     this.catcherWidths = new Array(playerCount).fill(0);
     this.pegHitCounts = new Array(playerCount).fill(0);
-    this.spawnAngles = new Array(playerCount).fill(0); // Initialize empty array
+    this.spawnAngles = new Array(playerCount).fill(0);
+
+    // NEW: Generate multi-layer pegs
+    this.generateMultiLayerPegs();
 
     const centerX = 0.5;
     const centerY = 0.5;
@@ -512,21 +785,20 @@ export class GameEngine {
         color: `hsl(${Math.floor(360 * i / playerCount)}, 70%, 50%)`,
         basePosition: basePos,
         isAlive: true,
-        coreHp: 500, // Increased from 200 for longer games
+        coreHp: 500,
         armyPower: 0,
-        baseRadius: 8 // Base territory radius in grid cells
+        baseRadius: 8
       });
-      
+
       this.initializeTerritory(i, basePos);
       this.spawnBall(i);
     }
 
-    // Initialize spawn angles to point toward map center (after players are created)
+    // Initialize spawn angles to point toward map center
     this.spawnAngles = this.players.map(p => {
       const bx = p.basePosition.x * MAP_GRID_SIZE;
       const by = p.basePosition.y * MAP_GRID_SIZE;
       const centerAngle = Math.atan2(50 - by, 50 - bx);
-      // Add slight random variation
       return centerAngle + (Math.random() - 0.5) * 1.0;
     });
 
@@ -648,18 +920,32 @@ export class GameEngine {
 
     // 1. Quantity Bonus - Reduced
     const quantityBonus = Math.floor(dominance * 3); // Reduced from 7
-    const finalAmount = amountBase + quantityBonus;
+    let finalAmount = amountBase + quantityBonus;
 
     // 2. Quality (HP) Bonus - Reduced scaling
     const hpMultiplier = 1.0 + (dominance * 0.3); // Reduced from 0.5
 
-    // 3. CATCH-UP MECHANISM - Weaker
+    // 3. WEAKENED CATCH-UP MECHANISM - Much weaker
     let catchUpBonus = 0;
-    if (dominance < 0.2) {
-      catchUpBonus = Math.floor((0.2 - dominance) * 6); // Reduced from 12
+    if (dominance < 0.15) { // Only for very weak players
+      catchUpBonus = Math.floor((0.15 - dominance) * 3); // Reduced from 6
     }
 
-    // 4. Aim Spread
+    // 4. TERRITORY PENALTY - If territory is very low, reduce unit count
+    let territoryPenalty = 1.0;
+    if (dominance < 0.05) {
+      territoryPenalty = 0.5; // 50% reduction for extremely weak players
+    } else if (dominance < 0.10) {
+      territoryPenalty = 0.7; // 30% reduction for very weak players
+    } else if (dominance < 0.15) {
+      territoryPenalty = 0.85; // 15% reduction for weak players
+    }
+
+    // Apply territory penalty
+    finalAmount = Math.floor(finalAmount * territoryPenalty);
+    catchUpBonus = Math.floor(catchUpBonus * territoryPenalty);
+
+    // 5. Aim Spread
     const spreadFactor = 0.5 + (dominance * 1.0);
 
     // Use slowly rotating spawn angle
@@ -668,12 +954,39 @@ export class GameEngine {
     // Mix of unit types based on game phase
     const unitMix = this.getUnitMix(isJackpot);
     
+    // Minimum unit count to prevent complete stagnation
+    finalAmount = Math.max(1, finalAmount);
+    
     for(let i=0; i<finalAmount + catchUpBonus; i++) {
-        const offsetX = (Math.random() - 0.5) * 4;
-        const offsetY = (Math.random() - 0.5) * 4;
+        // NEW: Spawn units from production area (center 2/3 of base) only
+        const productionRadius = p.baseRadius * 2 / 3;
+        const randomAngle = Math.random() * Math.PI * 2;
+        const randomDist = Math.random() * productionRadius;
         
-        const spread = (Math.random() - 0.5) * spreadFactor; 
-        const unitAngle = baseAngle + spread;
+        const offsetX = Math.cos(randomAngle) * randomDist;
+        const offsetY = Math.sin(randomAngle) * randomDist;
+        
+        // NEW: Biased random angles - more likely to go towards center, less likely to go backward
+        const centerX = MAP_GRID_SIZE / 2;
+        const centerY = MAP_GRID_SIZE / 2;
+        const angleToCenter = Math.atan2(centerY - by, centerX - bx);
+        
+        // Use weighted random to create bias towards center
+        const rand = Math.random();
+        let angleOffset;
+        
+        if (rand < 0.6) {
+          // 60% chance: small random offset towards center direction
+          angleOffset = (Math.random() - 0.5) * Math.PI / 2; // ±45 degrees
+        } else if (rand < 0.9) {
+          // 30% chance: medium random offset
+          angleOffset = (Math.random() - 0.5) * Math.PI; // ±90 degrees
+        } else {
+          // 10% chance: large random offset (including backward)
+          angleOffset = (Math.random() - 0.5) * Math.PI * 1.5; // ±135 degrees
+        }
+        
+        const unitAngle = angleToCenter + angleOffset;
 
         // Select unit type based on mix
         const unitType = this.selectUnitType(unitMix);
@@ -750,11 +1063,36 @@ export class GameEngine {
 
           const controlRatio = totalCells > 0 ? controlledCells / totalCells : 0;
 
-          // HP is directly tied to base control ratio
-          p.coreHp = controlRatio * 500;
+          // NEW: More accurate base HP calculation based on production area (center 2/3 of base)
+          let controlledProductionCells = 0;
+          let totalProductionCells = 0;
 
-          // Eliminate if base is completely lost
-          if (controlRatio < 0.1) {
+          // Calculate how many production cells (center 2/3 of base) are still controlled
+          const productionRadius = Math.floor(p.baseRadius * 2 / 3); // Center 2/3 produces units
+          const baseCenterX = Math.floor(p.basePosition.x * MAP_GRID_SIZE);
+          const baseCenterY = Math.floor(p.basePosition.y * MAP_GRID_SIZE);
+          
+          for(let y = -productionRadius; y <= productionRadius; y++) {
+              for(let x = -productionRadius; x <= productionRadius; x++) {
+                  if (x*x + y*y <= productionRadius*productionRadius) {
+                      totalProductionCells++;
+                      const gy = baseCenterY + y;
+                      const gx = baseCenterX + x;
+                      if (gy >= 0 && gy < MAP_GRID_SIZE && gx >= 0 && gx < MAP_GRID_SIZE) {
+                          if (this.grid[gy][gx] === p.id) {
+                              controlledProductionCells++;
+                          }
+                      }
+                  }
+              }
+          }
+
+          const productionControlRatio = totalProductionCells > 0 ? controlledProductionCells / totalProductionCells : 0;
+          // HP is directly tied to production area control ratio
+          p.coreHp = productionControlRatio * 500;
+
+          // Eliminate if production area is completely lost
+          if (productionControlRatio < 0.1) {
               p.isAlive = false;
               this.balls.delete(p.id);
           }
@@ -786,9 +1124,9 @@ export class GameEngine {
     const maxTerritory = Math.max(...this.territoryCounts);
     const maxDominance = maxTerritory / totalPixels;
 
-    if (maxDominance < 0.25) {
+    if (maxDominance < 0.20) { // Reduced from 0.25 - faster phase progression
       this.gamePhase = 'early';
-    } else if (maxDominance < 0.50) {
+    } else if (maxDominance < 0.40) { // Reduced from 0.50 - faster phase progression
       this.gamePhase = 'mid';
     } else {
       this.gamePhase = 'late';
@@ -796,111 +1134,146 @@ export class GameEngine {
   }
 
   update(pinballWidth: number, pinballHeight: number) {
-    if (this.pegs.length === 0) {
-      for (let r = 0; r < 5; r++) {
-        for (let c = 0; c < 4; c++) {
-            const stagger = (r % 2) * 12;
-            this.pegs.push({ x: 14 + c * 24 + stagger, y: 40 + r * 25 });
-        }
-      }
-    }
-    
     this.tick++;
-    const time = this.tick * 0.04; 
+    const time = this.tick * 0.04;
 
-    // Smart spawn angle adjustment - point toward map center with random variation
-    if (this.tick % 180 === 0) { // Every 3 seconds at 60fps
+    // NEW: Per-player special peg refresh - each player has different refresh timing
+    this.players.forEach((p, idx) => {
+      if (!p.isAlive) return;
+      
+      // Each player has different refresh interval based on their territory control
+      const totalPixels = MAP_GRID_SIZE * MAP_GRID_SIZE;
+      const dominance = this.territoryCounts[p.id] / totalPixels;
+      
+      // Calculate refresh interval: 200-400 ticks based on territory control
+      // Players with more territory get more frequent refreshes
+      const baseInterval = 200;
+      const intervalVariation = 200 * dominance;
+      const refreshInterval = Math.floor(baseInterval + intervalVariation);
+      
+      // Update timer
+      this.playerPegRefreshTimers[idx]++;
+      
+      // Refresh pegs for this player when timer reaches interval
+      if (this.playerPegRefreshTimers[idx] >= refreshInterval) {
+        this.refreshSpecialPegsForPlayer(p.id);
+        this.playerPegRefreshTimers[idx] = 0; // Reset timer
+      }
+    });
+
+    // Smart spawn angle adjustment
+    if (this.tick % 180 === 0) {
       this.players.forEach((p, idx) => {
         if (!p.isAlive) return;
-        
-        // Calculate angle toward map center
+
         const bx = p.basePosition.x * MAP_GRID_SIZE;
         const by = p.basePosition.y * MAP_GRID_SIZE;
         const centerAngle = Math.atan2(50 - by, 50 - bx);
-        
-        // Add random variation (-60 to +60 degrees)
+
         const randomVariation = (Math.random() - 0.5) * 2.1;
-        
-        // Blend current angle with center angle (80% center, 20% random)
+
         this.spawnAngles[idx] = centerAngle + randomVariation;
       });
     }
 
     this.checkSurvival();
     this.updateGamePhase();
-    
+
     const totalPixels = MAP_GRID_SIZE * MAP_GRID_SIZE;
 
     this.players.forEach(p => {
       if (!p.isAlive) return;
-      
-      const phase = this.catcherPhases[p.id];
-      const cx = 50 + Math.sin(time + phase) * 30;
+
+      // Static catcher position at center
+      const cx = 50;
       this.catcherPositions[p.id] = cx;
 
       const owned = this.territoryCounts[p.id] || 0;
       const dominance = owned / totalPixels;
-      
-      // CATCH-UP: Underdogs get MUCH wider catchers, dominators get narrower
+
+      // Calculate catcher width
       let catcherBonus = dominance * CATCHER_WIDTH_MAX_BONUS;
       if (dominance < 0.15) {
-        catcherBonus += 15; // Increased from 8 - huge bonus for underdogs
+        catcherBonus += 8;
       } else if (dominance > 0.5) {
-        catcherBonus -= 5; // Penalty for dominators
+        catcherBonus -= 5;
+      } else if (dominance < 0.05) {
+        catcherBonus -= 3;
       }
-      
+
       const baseCatcherWidth = CATCHER_WIDTH_BASE + catcherBonus;
-      
-      // Apply miss streak penalty
       const currentCatcherWidth = Math.max(15, baseCatcherWidth * (this.catcherWidths[p.id] || 1.0));
 
       const ball = this.balls.get(p.id);
       if (ball) {
-        const status = ball.update(pinballWidth, pinballHeight, this.pegs, cx, currentCatcherWidth);
-        
-        if (status === 2) { 
-          // JACKPOT - Simplified reward rules
+        const score = ball.update(pinballWidth, pinballHeight, this.pegs);
+
+        if (score > 0) {
+          // Ball reached bottom - calculate reward with random factors
           
-          // Rule 1: Catch streak multiplier (1.0 to 3.0)
-          const streakMultiplier = this.catchMultipliers[p.id];
+          // NEW: Random multiplier based on ball state - increased variance
+          let randomMultiplier = 1.0;
+          const randomFactor = Math.random();
           
-          // Rule 2: Peg hit bonus (more hits = more bonus)
-          const pegHitBonus = 1.0 + (ball.pegHitCount * 0.1); // Each peg hit = +10% bonus
+          if (randomFactor < 0.25) {
+            randomMultiplier = 0.5; // 25% 概率低倍率 - 降低
+          } else if (randomFactor < 0.55) {
+            randomMultiplier = 1.0; // 30% 概率正常倍率
+          } else if (randomFactor < 0.80) {
+            randomMultiplier = 2.0; // 25% 概率高倍率 - 增加
+          } else if (randomFactor < 0.95) {
+            randomMultiplier = 3.5; // 15% 概率超高倍率 - 大幅增加
+          } else {
+            randomMultiplier = 5.0; // 5% 概率极高倍率 - 新增
+          }
           
-          // Combine multipliers
-          const totalMultiplier = streakMultiplier * pegHitBonus;
+          // NEW: Position-based bonus (中心位置奖励更高)
+          const positionBonus = 1.0 - Math.abs(cx - 50) / 50 * 0.5; // 中心为1.0，边缘为0.5
           
-          const adjustedUnits = Math.floor(JACKPOT_UNITS_BASE * totalMultiplier);
+          // NEW: Velocity-based bonus (速度越快奖励越高)
+          const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+          const speedBonus = Math.min(1.5, 1.0 + ballSpeed / 20);
           
-          this.scores[p.id] += adjustedUnits;
-          this.spawnWave(p.id, adjustedUnits, true);
+          // NEW: Combo multiplier - increased impact
+          let comboMultiplier = 1.0;
+          if (ball.comboPoints >= 20) {
+            comboMultiplier = 5.0; // 大幅增加
+          } else if (ball.comboPoints >= 15) {
+            comboMultiplier = 3.5;
+          } else if (ball.comboPoints >= 10) {
+            comboMultiplier = 2.5;
+          } else if (ball.comboPoints >= 5) {
+            comboMultiplier = 1.8;
+          }
           
-          // Increase catch streak and multiplier
+          // NEW: Peg hit bonus (击中钉子越多奖励越高)
+          const pegHitBonus = Math.min(2.0, 1.0 + ball.pegHitCount / 15);
+          
+          // Calculate final units
+          const baseUnits = score;
+          const finalUnits = Math.floor(
+            baseUnits * 
+            randomMultiplier * 
+            positionBonus * 
+            speedBonus * 
+            comboMultiplier * 
+            pegHitBonus
+          );
+
+          this.scores[p.id] += finalUnits;
+          this.spawnWave(p.id, finalUnits, true);
+          this.spawnBall(p.id);
+
+          // Reset catch streak and combo
           this.catchStreaks[p.id]++;
           this.missStreaks[p.id] = 0;
-          
-          // Update multiplier: 1.0 + 0.2 * streak, max 3.0
-          this.catchMultipliers[p.id] = Math.min(3.0, 1.0 + (this.catchStreaks[p.id] * 0.2));
-          
-          // Restore catcher width on successful catch
+          this.catchMultipliers[p.id] = Math.min(2.0, 1.0 + (this.catchStreaks[p.id] * 0.15));
+
+          // Reset catcher width
           this.catcherWidths[p.id] = 1.0;
-          
-        } else if (status === 1) {
-          // MISS - Apply penalty based on miss streak
-          this.scores[p.id] += MISS_UNITS_BASE;
-          this.spawnWave(p.id, MISS_UNITS_BASE, false);
-          this.spawnBall(p.id);
-          
-          // Increase miss streak, reset catch streak
-          this.missStreaks[p.id]++;
-          this.catchStreaks[p.id] = 0;
-          this.catchMultipliers[p.id] = 1.0;
-          
-          // Penalty: reduce catcher width temporarily
-          if (this.missStreaks[p.id] >= 3) {
-            // 3+ consecutive misses = penalty
-            this.catcherWidths[p.id] = (this.catcherWidths[p.id] || 1.0) * 0.9;
-          }
+        } else {
+          // If ball is still in play (score = 0), continue
+          // No additional actions needed
         }
       }
     });
