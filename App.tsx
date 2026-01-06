@@ -103,7 +103,7 @@ const App: React.FC = () => {
         gameEngine.players.forEach(p => {
             if (!p.isAlive) return;
 
-            // Draw production area (center 2/3 of base) - subtle highlight matching base color
+            // Draw production area (center 2/3 of base) - pixel-style circle with higher visibility
             const productionRadius = p.baseRadius * 2 / 3;
             
             // Parse HSL color to extract hue
@@ -112,29 +112,20 @@ const App: React.FC = () => {
             const saturation = colorMatch ? parseInt(colorMatch[2]) : 70;
             const lightness = colorMatch ? parseInt(colorMatch[3]) : 50;
             
-            // Create lighter version of base color for production area (increase lightness by 15%)
-            ctx.beginPath();
-            ctx.arc(p.basePosition.x * w, p.basePosition.y * h, productionRadius * cellSize, 0, Math.PI * 2);
-            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${Math.min(100, lightness + 15)}%, 0.3)`;
-            ctx.fill();
-
-// Core with health indicator
-            const clampedHp = Math.max(0, Math.min(500, p.coreHp));
-            const coreHealthRatio = clampedHp / 500;
-            ctx.beginPath();
-            ctx.arc(p.basePosition.x * w, p.basePosition.y * h, 5, 0, Math.PI * 2);
-            ctx.fillStyle = p.color;
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // Health ring
-            ctx.beginPath();
-            ctx.arc(p.basePosition.x * w, p.basePosition.y * h, 7, 0, Math.PI * 2 * coreHealthRatio);
-            ctx.strokeStyle = coreHealthRatio > 0.5 ? '#22c55e' : coreHealthRatio > 0.25 ? '#eab308' : '#ef4444';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            // Create brighter version of base color for production area (increase lightness by 25% and opacity to 0.5)
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${Math.min(100, lightness + 25)}%, 0.5)`;
+            
+            // Draw pixel-style circle (perfect circle with jagged pixel edges)
+            for(let y = -productionRadius; y <= productionRadius; y++) {
+                for(let x = -productionRadius; x <= productionRadius; x++) {
+                    // Perfect circle equation
+                    if (x*x + y*y <= productionRadius*productionRadius) {
+                        const px = p.basePosition.x * w + x * cellSize;
+                        const py = p.basePosition.y * h + y * cellSize;
+                        ctx.fillRect(px, py, cellSize, cellSize);
+                    }
+                }
+            }
         });
 
         // Draw Traveling Units with type-specific visuals
@@ -149,124 +140,64 @@ const App: React.FC = () => {
           const px = u.x * cellSize;
           const py = u.y * cellSize;
           
-          // Draw trail for light units
+          // Draw trail for light units - pixel style
           if (u.unitType === 'light' && u.trail.length > 1) {
-            ctx.beginPath();
-            ctx.moveTo(u.trail[0].x * cellSize, u.trail[0].y * cellSize);
-            for (let i = 1; i < u.trail.length; i++) {
-              ctx.lineTo(u.trail[i].x * cellSize, u.trail[i].y * cellSize);
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, 80%, 0.3)`;
+            for (let i = 0; i < u.trail.length; i++) {
+              const trailX = Math.floor(u.trail[i].x * cellSize);
+              const trailY = Math.floor(u.trail[i].y * cellSize);
+              const alpha = (i / u.trail.length) * 0.3;
+              ctx.fillStyle = `hsla(${hue}, ${saturation}%, 80%, ${alpha})`;
+              ctx.fillRect(trailX, trailY, cellSize, cellSize);
             }
-            
-            // Create gradient for trail
-            const gradient = ctx.createLinearGradient(
-              u.trail[0].x * cellSize, u.trail[0].y * cellSize,
-              px, py
-            );
-            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, 80%, 0)`);
-            gradient.addColorStop(1, `hsla(${hue}, ${saturation}%, 80%, 0.3)`); // Reduced from 0.6
-            
-            ctx.strokeStyle = gradient;
-            ctx.lineWidth = 2; // Reduced from 3
-            ctx.lineCap = 'round';
-            ctx.stroke();
-            
-            // Glow effect for trail (weaker)
-            ctx.shadowBlur = 8; // Reduced from 15
-            ctx.shadowColor = `hsl(${hue}, ${saturation}%, 80%)`;
-            ctx.strokeStyle = `hsla(${hue}, ${saturation}%, 80%, 0.15)`; // Reduced from 0.3
-            ctx.lineWidth = 3; // Reduced from 5
-            ctx.stroke();
-            ctx.shadowBlur = 0;
           }
           
-          // Battle effect
+          // Battle effect - pixel style
           if (u.battleEffect > 0) {
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = `hsl(${hue}, ${saturation}%, 80%)`;
+            const battleSize = cellSize * 2;
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, 80%, 0.3)`;
+            ctx.fillRect(px - battleSize/2, py - battleSize/2, battleSize, battleSize);
             u.battleEffect--;
           }
           
           if (u.unitType === 'light') {
-            // Light unit - Circle with gradient
-            const radius = 2.8;
+            // Light unit - pixel-style square
+            const unitSize = cellSize * 0.8;
+            const unitX = px - unitSize / 2;
+            const unitY = py - unitSize / 2;
             
-            // Outer glow
-            ctx.beginPath();
-            ctx.arc(px, py, radius + 2, 0, Math.PI * 2);
-            ctx.fillStyle = `hsla(${hue}, ${saturation}%, 80%, 0.2)`;
-            ctx.fill();
+            // Main square
+            ctx.fillStyle = `hsl(${hue}, ${saturation}%, 70%)`;
+            ctx.fillRect(unitX, unitY, unitSize, unitSize);
             
-            // Main circle with gradient
-            const gradient = ctx.createRadialGradient(px - 1, py - 1, 0, px, py, radius);
-            gradient.addColorStop(0, `hsl(${hue}, ${saturation}%, 90%)`);
-            gradient.addColorStop(0.6, `hsl(${hue}, ${saturation}%, 70%)`);
-            gradient.addColorStop(1, `hsl(${hue}, ${saturation}%, 55%)`);
-            
-            ctx.beginPath();
-            ctx.arc(px, py, radius, 0, Math.PI * 2);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-            
-            // Bright center
-            ctx.beginPath();
-            ctx.arc(px - 0.8, py - 0.8, 1, 0, Math.PI * 2);
-            ctx.fillStyle = `hsla(${hue}, ${saturation}%, 95%, 0.8)`;
-            ctx.fill();
-            
-            // Health bar for damaged units
-            if (u.hp < u.maxHp) {
-              const healthRatio = u.hp / u.maxHp;
-              const barWidth = radius * 2.5;
-              const barHeight = 2;
-              const barX = px - barWidth / 2;
-              const barY = py - radius - 5;
-              
-              // Use transparent background instead of black
-              ctx.fillStyle = `hsla(${hue}, ${saturation}%, 30%, 0.3)`;
-              ctx.fillRect(barX, barY, barWidth, barHeight);
-              
-              ctx.fillStyle = healthRatio > 0.5 ? '#22c55e' : healthRatio > 0.25 ? '#eab308' : '#ef4444';
-              ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
-            }
+            // Bright center pixel
+            const centerPixelSize = cellSize * 0.3;
+            ctx.fillStyle = `hsl(${hue}, ${saturation}%, 90%)`;
+            ctx.fillRect(px - centerPixelSize/2, py - centerPixelSize/2, centerPixelSize, centerPixelSize);
           } else {
-            // Heavy unit - Simple diamond shape
-            const size = 4.5;
+            // Heavy unit - pixel-style diamond (square rotated 45 degrees)
+            const unitSize = cellSize * 1.2;
             
-            // Simple diamond with brighter color
-            ctx.beginPath();
-            ctx.moveTo(px, py - size);
-            ctx.lineTo(px + size, py);
-            ctx.lineTo(px, py + size);
-            ctx.lineTo(px - size, py);
-            ctx.closePath();
+            // Draw as 4 small squares forming diamond shape
+            const quarterSize = unitSize / 2;
             
-            // Fill with brighter player color (increased from 50% to 65%)
+            // Top square
             ctx.fillStyle = `hsl(${hue}, ${saturation}%, 65%)`;
-            ctx.fill();
+            ctx.fillRect(px - quarterSize/2, py - unitSize/2, quarterSize, quarterSize);
             
-            // Thicker, brighter border
-            ctx.strokeStyle = `hsl(${hue}, ${saturation}%, 90%)`;
-            ctx.lineWidth = 3;
-            ctx.stroke();
+            // Bottom square
+            ctx.fillRect(px - quarterSize/2, py, quarterSize, quarterSize);
             
-            // Health bar for damaged units
-            if (u.hp < u.maxHp) {
-              const healthRatio = u.hp / u.maxHp;
-              const barWidth = size * 2.5;
-              const barHeight = 3;
-              const barX = px - barWidth / 2;
-              const barY = py - size - 6;
-              
-              // Use transparent background instead of black
-              ctx.fillStyle = `hsla(${hue}, ${saturation}%, 30%, 0.3)`;
-              ctx.fillRect(barX, barY, barWidth, barHeight);
-              
-              ctx.fillStyle = healthRatio > 0.5 ? '#22c55e' : healthRatio > 0.25 ? '#eab308' : '#ef4444';
-              ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
-            }
+            // Left square
+            ctx.fillRect(px - unitSize/2, py - quarterSize/2, quarterSize, quarterSize);
+            
+            // Right square
+            ctx.fillRect(px, py - quarterSize/2, quarterSize, quarterSize);
+            
+            // Center square
+            ctx.fillStyle = `hsl(${hue}, ${saturation}%, 90%)`;
+            ctx.fillRect(px - quarterSize/2, py - quarterSize/2, quarterSize, quarterSize);
           }
-          
-          ctx.shadowBlur = 0;
         });
       }
     }
@@ -306,48 +237,50 @@ const App: React.FC = () => {
             return;
         }
 
-        // Draw Pegs with different colors based on type
+        // Draw Pegs with different colors based on type - pixel-style circle
         gameEngine.pegs.forEach(peg => {
-            const pegRadius = 4; // Increased from 3 for better visibility
-            ctx.beginPath();
-            ctx.arc(peg.x * scaleX, peg.y * scaleY, pegRadius, 0, Math.PI * 2);
+            const pegRadius = 4; // Pixel-style circle radius
+            const pegX = Math.floor(peg.x * scaleX);
+            const pegY = Math.floor(peg.y * scaleY);
 
             // Color based on peg type with better visibility
             if (peg.type === 'gold') {
                 ctx.fillStyle = '#fbbf24'; // Gold
-                ctx.shadowColor = '#fbbf24';
-                ctx.shadowBlur = 10; // Increased glow
             } else if (peg.type === 'red') {
                 ctx.fillStyle = '#ef4444'; // Red
-                ctx.shadowColor = '#ef4444';
-                ctx.shadowBlur = 10; // Increased glow
             } else {
                 ctx.fillStyle = '#94a3b8'; // Lighter gray for better visibility
-                ctx.shadowBlur = 0;
             }
 
-            ctx.fill();
-
-            // Add white border for better contrast
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            ctx.shadowBlur = 0;
+            // Draw pixel-style circle (using squares to form a circle)
+            for(let py = -pegRadius; py <= pegRadius; py++) {
+                for(let px = -pegRadius; px <= pegRadius; px++) {
+                    if (px*px + py*py <= pegRadius*pegRadius) {
+                        ctx.fillRect(pegX + px, pegY + py, 1, 1);
+                    }
+                }
+            }
         });
 
         // No catcher drawing - balls just fall to bottom and generate units randomly
 
-        // Draw Ball
+        // Draw Ball - pixel-style circle
         const ball = gameEngine.balls.get(player.id);
         if (ball) {
-            ctx.beginPath();
-            ctx.arc(ball.x * scaleX, ball.y * scaleY, ball.radius * scaleX, 0, Math.PI * 2);
+            const ballRadius = Math.floor(ball.radius * scaleX);
+            const ballX = Math.floor(ball.x * scaleX);
+            const ballY = Math.floor(ball.y * scaleY);
+            
             ctx.fillStyle = ball.color;
-            ctx.shadowColor = ball.color;
-            ctx.shadowBlur = 10;
-            ctx.fill();
-            ctx.shadowBlur = 0;
+            
+            // Draw pixel-style circle (using squares to form a circle)
+            for(let py = -ballRadius; py <= ballRadius; py++) {
+                for(let px = -ballRadius; px <= ballRadius; px++) {
+                    if (px*px + py*py <= ballRadius*ballRadius) {
+                        ctx.fillRect(ballX + px, ballY + py, 1, 1);
+                    }
+                }
+            }
         }
 
         // Draw Stats Overlay

@@ -1,14 +1,14 @@
 import { PlayerConfig, Point, UnitType, TerrainType, TerrainCell, UnitStats } from '../types';
 
 // Constants
-const GRAVITY = 0.25; 
+const GRAVITY = 0.15;  // Reduced from 0.25 - Slower gravity for slower ball movement
 const FRICTION = 0.99;
 const BOUNCE_DAMPING = 0.75; 
 const MAP_GRID_SIZE = 100;
 
 // Game Balance - WAR SIMULATION (Slower unit generation)
-const JACKPOT_UNITS_BASE = 4;   // Reduced from 8
-const MISS_UNITS_BASE = 2;      // Reduced from 4
+const JACKPOT_UNITS_BASE = 8;   // Increased from 4 - More units per jackpot
+const MISS_UNITS_BASE = 4;      // Increased from 2 - More units per miss
 const CATCHER_Y = 135; 
 const CATCHER_WIDTH_BASE = 28;  // Reduced from 32
 const CATCHER_WIDTH_MAX_BONUS = 12; // Reduced from 18
@@ -16,19 +16,19 @@ const CATCHER_WIDTH_MAX_BONUS = 12; // Reduced from 18
 // Unit Type Stats (Increased speed for more dynamic gameplay)
 const UNIT_STATS: Record<UnitType, UnitStats> = {
   light: {
-    baseHp: 40,
-    speed: 0.35,  // Increased from 0.2 for faster movement
-    captureRadius: 1.0,
-    attackPower: 0.8,
-    defenseBonus: 0.8,
+    baseHp: 45, // Increased from 40 - Better survival
+    speed: 0.5,  // Increased from 0.45 - Even faster movement
+    captureRadius: 1.2, // Increased from 1.0 - Faster territory capture
+    attackPower: 1.0, // Increased from 0.8 - Faster combat
+    defenseBonus: 0.9, // Increased from 0.8 - Better survival
     bonusAgainst: []
   },
   heavy: {
-    baseHp: 80,
-    speed: 0.25,  // Increased from 0.15 for faster movement
-    captureRadius: 2.0,
-    attackPower: 1.8,
-    defenseBonus: 2.0,
+    baseHp: 90, // Increased from 80 - Better survival
+    speed: 0.45,  // Increased from 0.4 - Even faster movement
+    captureRadius: 2.5, // Increased from 2.2 - Faster territory capture
+    attackPower: 2.0, // Increased from 1.8 - Faster combat
+    defenseBonus: 2.2, // Increased from 2.0 - Better survival
     bonusAgainst: []
   }
 };
@@ -54,13 +54,13 @@ class Ball {
     this.y = y;
     this.color = color;
     // NEW: Reduced initial velocity for more realistic free fall
-    this.vx = (Math.random() - 0.5) * 2; // Reduced from 6
-    this.vy = Math.random() * 0.5; // Reduced from 2
+    this.vx = (Math.random() - 0.5) * 1.5; // Reduced from 2 - Slower initial velocity
+    this.vy = Math.random() * 0.3; // Reduced from 0.5 - Slower initial velocity
     this.pegHitCount = 0;
     this.comboPoints = 0;
     this.maxComboPoints = 0;
     this.ballTick = 0;
-    this.radius = 5.0; // Increased from 4.0 for better visibility
+    this.radius = 6.0; // Increased from 5.0 - Larger ball for better visibility
   }
 
   update(width: number, height: number, pegs: any[]): number {
@@ -94,7 +94,7 @@ class Ball {
       const dx = this.x - peg.x;
       const dy = this.y - peg.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 8) { // Very close to peg
+      if (dist < 10) { // Increased from 8 - Larger detection radius
         nearbyPegs++;
       }
     }
@@ -131,7 +131,7 @@ class Ball {
     }
 
     // NEW: Multi-layer pegs and combo system with improved physics
-    const pegRadius = 3;
+    const pegRadius = 4;  // Increased from 3 - Larger pegs for better visibility
     const minDist = this.radius + pegRadius;
     const minDistSq = minDist * minDist;
 
@@ -302,12 +302,12 @@ export class Unit {
     // Record spawn position for distance tracking
     this.spawnPosition = { x, y };
     this.leftTerritoryPosition = null; // Initially null - unit starts in own territory
-    
+
     const stats = UNIT_STATS[unitType];
-    
+
     // Set max distance based on unit type
     // Increased max distance to allow units to penetrate deeper and break stalemates
-    this.maxDistance = unitType === 'light' ? 2.0 : 3.0; // Increased from 1.0/1.5 to 2.0/3.0
+    this.maxDistance = unitType === 'light' ? 3.5 : 5.0; // Increased from 3.0/4.0 to 3.5/5.0 for deeper penetration
     
     // Phase-based scaling
     let phaseMultiplier = 1.0;
@@ -335,7 +335,7 @@ export class Unit {
     // Add current position to trail for light units
     if (this.unitType === 'light') {
       this.trail.push({ x: this.x, y: this.y });
-      if (this.trail.length > 5) {  // Reduced from 8
+      if (this.trail.length > 8) {  // Increased from 5 - Longer trail for better visibility
         this.trail.shift();
       }
     }
@@ -418,9 +418,9 @@ export class Unit {
       }
       
       if (bounced) {
-        this.bounceCooldown = 20; // 20 frame cooldown
+        this.bounceCooldown = 15; // Reduced from 20 - More frequent bounces
         // Restore less HP on bounce
-        this.hp = Math.min(this.maxHp, this.hp + 20); // Reduced from 50
+        this.hp = Math.min(this.maxHp, this.hp + 30); // Increased from 20 - Better survival
       }
     }
     
@@ -434,13 +434,13 @@ export class Unit {
     let defenseModifier = 1.0;
     
     if (terrain.type === 'highground') {
-      defenseModifier = 1.2; // Reduced from 1.3
-      speedModifier = 0.9;   // Increased from 0.8
+      defenseModifier = 1.1; // Reduced from 1.2 - Less defensive bonus
+      speedModifier = 0.95;  // Increased from 0.9 - Less speed penalty
     } else if (terrain.type === 'obstacle') {
-      speedModifier = 0.7;   // Increased from 0.5
+      speedModifier = 0.8;   // Increased from 0.7 - Less speed penalty
     } else if (terrain.type === 'supply') {
       if (this.hp < this.maxHp) {
-        this.hp = Math.min(this.maxHp, this.hp + 1.0); // Increased from 0.5
+        this.hp = Math.min(this.maxHp, this.hp + 1.5); // Increased from 1.0 - Faster healing
       }
     }
 
@@ -459,9 +459,9 @@ export class Unit {
     // COMBAT LOGIC
     let resistanceMult = 1.0;
     let isEnemyTerritory = false;
-    
+
     if (currentOwner !== -1 && players[currentOwner]?.isAlive) {
-      resistanceMult = 5.0; // Increased from 3.5 for much slower expansion
+      resistanceMult = 3.5; // Reduced from 5.0 - Faster expansion for quicker gameplay
       isEnemyTerritory = true;
     }
 
@@ -510,17 +510,17 @@ export class Unit {
       }
       
       // Add extra cost for neutral territory to slow expansion
-      const neutralCost = currentOwner === -1 ? baseCost * 2.0 : baseCost;
+      const neutralCost = currentOwner === -1 ? baseCost * 1.5 : baseCost; // Reduced from 2.0 to 1.5 - Faster neutral territory capture
       
       // NEW: Base areas are much harder to capture
-      const baseAreaCost = isBaseArea ? neutralCost * 5.0 : neutralCost; // 5x resistance for base areas
-      
-      const terrainCost = terrain.type === 'highground' ? baseAreaCost * 1.5 : baseAreaCost;
+      const baseAreaCost = isBaseArea ? neutralCost * 3.0 : neutralCost; // Reduced from 5.0 to 3.0 - Faster base capture for quicker gameplay
+
+      const terrainCost = terrain.type === 'highground' ? baseAreaCost * 1.3 : baseAreaCost; // Reduced from 1.5 to 1.3 - Less terrain penalty
       let finalCost = terrainCost / (this.attackPower * typeBonus * defenseModifier);
       
       // Heavy units take less damage to extend lifespan
       if (this.unitType === 'heavy') {
-        finalCost *= 0.7; // Reduced from 0.5 (more damage)
+        finalCost *= 0.8; // Increased from 0.7 - More damage for faster combat
       }
       
       this.hp -= finalCost;
@@ -886,8 +886,10 @@ export class GameEngine {
       const centerGridY = Math.floor(basePos.y * MAP_GRID_SIZE);
       const radius = 18; // Increased from 14
 
+      // NEW: Use pixel-style circle (perfect circle but with jagged pixel edges)
       for(let y = -radius; y <= radius; y++) {
           for(let x = -radius; x <= radius; x++) {
+              // Perfect circle equation
               if (x*x + y*y <= radius*radius) {
                   const gy = centerGridY + y;
                   const gx = centerGridX + x;
@@ -918,27 +920,27 @@ export class GameEngine {
     const ownedPixels = this.territoryCounts[playerId] || 100;
     const dominance = Math.min(1.0, Math.max(0.01, ownedPixels / totalPixels));
 
-    // 1. Quantity Bonus - Reduced
-    const quantityBonus = Math.floor(dominance * 3); // Reduced from 7
+    // 1. Quantity Bonus - Increased for faster gameplay
+    const quantityBonus = Math.floor(dominance * 5); // Increased from 3
     let finalAmount = amountBase + quantityBonus;
 
-    // 2. Quality (HP) Bonus - Reduced scaling
-    const hpMultiplier = 1.0 + (dominance * 0.3); // Reduced from 0.5
+    // 2. Quality (HP) Bonus - Increased scaling
+    const hpMultiplier = 1.0 + (dominance * 0.4); // Increased from 0.3
 
-    // 3. WEAKENED CATCH-UP MECHANISM - Much weaker
+    // 3. ENHANCED CATCH-UP MECHANISM - Stronger for faster gameplay
     let catchUpBonus = 0;
-    if (dominance < 0.15) { // Only for very weak players
-      catchUpBonus = Math.floor((0.15 - dominance) * 3); // Reduced from 6
+    if (dominance < 0.20) { // Increased from 0.15
+      catchUpBonus = Math.floor((0.20 - dominance) * 5); // Increased from 3
     }
 
     // 4. TERRITORY PENALTY - If territory is very low, reduce unit count
     let territoryPenalty = 1.0;
     if (dominance < 0.05) {
-      territoryPenalty = 0.5; // 50% reduction for extremely weak players
+      territoryPenalty = 0.7; // Increased from 0.5 - Less penalty
     } else if (dominance < 0.10) {
-      territoryPenalty = 0.7; // 30% reduction for very weak players
+      territoryPenalty = 0.8; // Increased from 0.7 - Less penalty
     } else if (dominance < 0.15) {
-      territoryPenalty = 0.85; // 15% reduction for weak players
+      territoryPenalty = 0.9; // Increased from 0.85 - Less penalty
     }
 
     // Apply territory penalty
@@ -1063,11 +1065,11 @@ export class GameEngine {
 
           const controlRatio = totalCells > 0 ? controlledCells / totalCells : 0;
 
-          // NEW: More accurate base HP calculation based on production area (center 2/3 of base)
-          let controlledProductionCells = 0;
-          let totalProductionCells = 0;
+          // NEW: More accurate base HP calculation based on production area with weighted center
+          let weightedControl = 0;
+          let totalWeight = 0;
 
-          // Calculate how many production cells (center 2/3 of base) are still controlled
+          // Calculate weighted control - center cells have higher weight
           const productionRadius = Math.floor(p.baseRadius * 2 / 3); // Center 2/3 produces units
           const baseCenterX = Math.floor(p.basePosition.x * MAP_GRID_SIZE);
           const baseCenterY = Math.floor(p.basePosition.y * MAP_GRID_SIZE);
@@ -1075,24 +1077,30 @@ export class GameEngine {
           for(let y = -productionRadius; y <= productionRadius; y++) {
               for(let x = -productionRadius; x <= productionRadius; x++) {
                   if (x*x + y*y <= productionRadius*productionRadius) {
-                      totalProductionCells++;
+                      // Calculate distance from center for weighting
+                      const distFromCenter = Math.sqrt(x*x + y*y);
+                      // Weight: center cells have higher weight (closer to center = higher weight)
+                      const weight = Math.max(1, (productionRadius - distFromCenter) * 2);
+                      
+                      totalWeight += weight;
+                      
                       const gy = baseCenterY + y;
                       const gx = baseCenterX + x;
                       if (gy >= 0 && gy < MAP_GRID_SIZE && gx >= 0 && gx < MAP_GRID_SIZE) {
                           if (this.grid[gy][gx] === p.id) {
-                              controlledProductionCells++;
+                              weightedControl += weight;
                           }
                       }
                   }
               }
           }
 
-          const productionControlRatio = totalProductionCells > 0 ? controlledProductionCells / totalProductionCells : 0;
-          // HP is directly tied to production area control ratio
-          p.coreHp = productionControlRatio * 500;
+          const weightedControlRatio = totalWeight > 0 ? weightedControl / totalWeight : 0;
+          // HP is directly tied to weighted production area control ratio
+          p.coreHp = weightedControlRatio * 500;
 
-          // Eliminate if production area is completely lost
-          if (productionControlRatio < 0.1) {
+          // Eliminate if production area is completely lost (weighted)
+          if (weightedControlRatio < 0.1) {
               p.isAlive = false;
               this.balls.delete(p.id);
           }
@@ -1124,9 +1132,9 @@ export class GameEngine {
     const maxTerritory = Math.max(...this.territoryCounts);
     const maxDominance = maxTerritory / totalPixels;
 
-    if (maxDominance < 0.20) { // Reduced from 0.25 - faster phase progression
+    if (maxDominance < 0.15) { // Reduced from 0.20 - Even faster phase progression
       this.gamePhase = 'early';
-    } else if (maxDominance < 0.40) { // Reduced from 0.50 - faster phase progression
+    } else if (maxDominance < 0.30) { // Reduced from 0.40 - Even faster phase progression
       this.gamePhase = 'mid';
     } else {
       this.gamePhase = 'late';
